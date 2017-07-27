@@ -1,5 +1,23 @@
+#include "Adafruit_FONA.h"
+
+// Temperature Sensor
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#include "LowPower.h"
+
+#include <SoftwareSerial.h>
+
 // load config file
 #include "./CONFIG.h"
+
+
+// Adafruit FONA
+#define FONA_RX 2
+#define FONA_TX 3
+#define FONA_RST 4
+
+// Temperature Sensor PIN
+#define ONE_WIRE_BUS 12
 
 //senseBox ID
 #define SENSEBOX_ID SECRET_SENSEBOX_ID
@@ -10,35 +28,15 @@
 #define TEMPERATURE_ID SECRET_TEMPERATURE_ID // Bodentemperatur
 
 
-
-
-
-#include "Adafruit_FONA.h"
-
-#define FONA_RX 2
-#define FONA_TX 3
-#define FONA_RST 4
-
-#include <SoftwareSerial.h>
+// Adafruit FONA
 SoftwareSerial fonaSS = SoftwareSerial(FONA_TX, FONA_RX);
 SoftwareSerial *fonaSerial = &fonaSS;
 
 Adafruit_FONA fona = Adafruit_FONA(FONA_RST);
 
+// get SIM PIN from config.h
 char myPIN[4] = SECRET_SIM_PIN;
 
-
-
-
-
-
-// First we include the libraries
-#include <OneWire.h>
-#include <DallasTemperature.h>
-#include "LowPower.h"
-
-// Data wire is plugged into pin 13 on the Arduino
-#define ONE_WIRE_BUS 12
 
 // Setup a oneWire instance to communicate with any OneWire devices
 // (not just Maxim/Dallas temperature ICs)
@@ -50,18 +48,13 @@ DallasTemperature sensors(&oneWire);
 // seconds divided by sleep time (8)
 const int FREQUENCY = 60 / 8;
 
-unsigned int loops = 0;
-
-
-
-
-
-
-
+// counter to count wakeups
+unsigned int wakeups = 0;
 
 void setup() {
   Serial.begin(115200);
 
+  // initialize FONA
   Serial.println("init FONA...");
   fonaSerial->begin(4800);
   if (! fona.begin(*fonaSerial)) {
@@ -72,11 +65,13 @@ void setup() {
 
   delay(5000);
 
+  // set APN settings
   Serial.println("APN settings...");
   fona.setGPRSNetworkSettings(F(SECRET_APN_PROVIDER), F(""), F(""));
 
   delay(5000);
 
+  // Unlock SIM
   Serial.print("Unlocking SIM with PIN: ");
   Serial.println(myPIN);
   if (!fona.unlockSIM(myPIN)) {
@@ -88,6 +83,7 @@ void setup() {
 
   delay(5000);
 
+  // Wait till FONA has network access
   Serial.println("Wait for network...");
   while (true) {
     uint8_t n = fona.getNetworkStatus();
@@ -108,27 +104,31 @@ void setup() {
 
   delay(5000);
 
+  // Enable GPRS
   Serial.println("Enable GPRS...");
   if (!fona.enableGPRS(true)) {
     Serial.println(F("Failed to turn on"));
     while (1);
   }
 
+  // Initialize temperature sensor
   Serial.println("init sensors...");
   // Start up the library
   sensors.begin();
 
+  delay(1000);
+
 }
 
 void loop() {
-  if (loops % FREQUENCY == 0) {
-    loops = 0;
+  
+  if (wakeups % FREQUENCY == 0) {
+    wakeups = 0;
 
     // Reading Temperature
     sensors.requestTemperatures(); // Send the command to get temperature readings
     double temperature = sensors.getTempCByIndex(0);
     postToOsem(String(TEMPERATURE_ID), String(temperature));
-    delay(1000);
 
     // Reading Battery Percentage
     uint16_t vbat;
@@ -138,7 +138,6 @@ void loop() {
       Serial.print(F("VPct = ")); Serial.print(vbat); Serial.println(F("%"));
     }
     postToOsem(String(BATTERY_ID), String(vbat));
-    delay(1000);
 
     // read the RSSI
     uint8_t n = fona.getRSSI();
@@ -153,16 +152,14 @@ void loop() {
     }
     Serial.print(r); Serial.println(F(" dBm"));
     postToOsem(String(SIGNAL_STRENGTH_ID), String(r));
-    delay(1000);
-    
-    delay(100);
   } else {
     // Enter power down state for 8 s with ADC and BOD module disabled
     LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
   }
-  loops++;
+  wakeups++;
 }
 
+// post value to sensor in opensensemap
 void postToOsem(String sensorID, String value) {
   // build string to send
   String dataString = "{\n";
@@ -170,36 +167,23 @@ void postToOsem(String sensorID, String value) {
   dataString += "\n}";
   Serial.println(dataString);
   char data[dataString.length() + 1];
-  uint16_t statuscode;
-  int16_t length;
+  dataString.toCharArray(data, dataString.length() + 1);
 
+  // build POST URL
   String postURLString = "ingress.opensensemap.org:80/boxes/" + String(SENSEBOX_ID) + "/" + String(sensorID);
   char postURL[postURLString.length() + 1];
   postURLString.toCharArray(postURL, postURLString.length() + 1);
 
-  Serial.println(postURL); 
-
-  dataString.toCharArray(data, dataString.length() + 1);
+  // do post request
+  uint16_t statuscode;
+  int16_t length;
   if (!fona.HTTP_POST_start(postURL, F("application/json"), (uint8_t *) data, strlen(data), &statuscode, (uint16_t *)&length)) {
     Serial.println("Failed!");
   }
-  while (length > 0) {
-    while (fona.available()) {
-      char c = fona.read();
-  
-      #if defined(__AVR_ATmega328P__) || defined(__AVR_ATmega168__)
-          loop_until_bit_is_set(UCSR0A, UDRE0); /* Wait until data register empty. */
-          UDR0 = c;
-      #else
-          Serial.write(c);
-      #endif
-  
-      length--;
-      if (! length) break;
-    }
-  }
-  Serial.println(F("\n****"));
+  delay(1000);
+  // end post request
   fona.HTTP_POST_end();
+  delay(1000);
 }
 
 
