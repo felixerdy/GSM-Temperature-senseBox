@@ -21,5 +21,5 @@ Please create a custom senseBox on https://opensensemap.org and add three sensor
 Edit `CONFIG.h.example` and change insert your SIM PIN Code, senseBox ID, sensor IDs and your APN Provider. Save the file as `CONFIG.h`.
 
 ### Upload
-Connect and configure your Arduino Pro Mini with an FTDI adapter or over an Arduno Uno to your computer.
+Connect and configure your Arduino Pro Mini with an FTDI adapter or over an Arduino Uno to your computer.
 You should now be able to upload the code and see logs on the console.
