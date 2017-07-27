@@ -1,0 +1,8 @@
+#define SECRET_SIM_PIN {'1', '2', '3', '4'}
+
+#define SECRET_SENSEBOX_ID "12345678901234567890"
+#define SECRET_SIGNAL_STRENGTH_ID "12345678901234567890" // Signalstärke
+#define SECRET_BATTERY_ID "12345678901234567890" // Batterieladung
+#define SECRET_TEMPERATURE_ID "12345678901234567890" // Bodentemperatur
+
+#define SECRET_APN_PROVIDER "internet.internet.de"
