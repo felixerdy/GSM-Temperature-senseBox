@@ -1,14 +1,14 @@
 # GSM-Temperature-senseBox
-A battery operated cellular senseBox to measure water temperature 
+A battery operated cellular senseBox to measure water temperature
 
 ## Hardware
 You will need the following hardware:
-- Arduino Pro Mini
+- Wattuino Pro Mini
 - [Adafruit FONA](https://learn.adafruit.com/adafruit-fona-mini-gsm-gprs-cellular-phone-module/overview)
 - DS18B20 Temperature Sensor
 - LiPo Battery
 
-Please wire it accordingly
+![Arduino Wiring](./GSM-Water-temperature_Steckplatine.png)
 
 ## Installation
 ### Register a new senseBox
