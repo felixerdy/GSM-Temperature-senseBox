@@ -10,14 +10,15 @@
 // load config file
 #include "./CONFIG.h"
 
-
 // Adafruit FONA
 #define FONA_RX 2
 #define FONA_TX 3
 #define FONA_RST 4
+#define FONA_KEY 5
+#define FONA_PS 7
 
 // Temperature Sensor PIN
-#define ONE_WIRE_BUS 9
+#define ONE_WIRE_BUS 11
 
 //senseBox ID
 #define SENSEBOX_ID SECRET_SENSEBOX_ID
@@ -45,85 +46,72 @@ OneWire oneWire(ONE_WIRE_BUS);
 // Pass our oneWire reference to Dallas Temperature.
 DallasTemperature sensors(&oneWire);
 
-// seconds divided by sleep time (8)
-const int FREQUENCY = 30 / 8;
-
-// counter to count wakeups
-unsigned int wakeups = 0;
-
-// fona power status
-boolean isFONAOn = false;
+// send data interval
+const int INTERVAL = 600;
 
 void setup() {
   Serial.begin(115200);
 
   // pin to toggle GMS Module
-  pinMode(5, OUTPUT);
+  pinMode(FONA_KEY, OUTPUT);
 
-  if(!isFONAOn) {
+  delay(1000);
+
+  // pin to read Fona Power Status
+  pinMode(FONA_PS, INPUT);
+
+  // Initialize temperature sensor
+  // Start up the library
+  sensors.begin();
+  delay(1000);
+}
+
+void loop() {
+  if (!isPowered()) {
     // turn FONA on
     toggleFONAPower();
     // setup FONA
     setupFONA();
   }
 
-  // Initialize temperature sensor
-  Serial.println("init sensors...");
-  // Start up the library
-  sensors.begin();
+  // Reading Temperature
+  sensors.requestTemperatures(); // Send the command to get temperature readings
+  double temperature = sensors.getTempCByIndex(0);
+  postToOsem(String(TEMPERATURE_ID), String(temperature));
 
-  delay(1000);
-
-}
-
-void loop() {
-  
-  if (wakeups % FREQUENCY == 0) {
-    wakeups = 0;
-
-    if(!isFONAOn) {
-      // turn FONA on
-      toggleFONAPower();
-      // setup FONA
-      setupFONA();
-    }
-    
-    // Reading Temperature
-    sensors.requestTemperatures(); // Send the command to get temperature readings
-    double temperature = sensors.getTempCByIndex(0);
-    postToOsem(String(TEMPERATURE_ID), String(temperature));
-
-    // Reading Battery Percentage
-    uint16_t vbat;
-    if (!fona.getBattPercent(&vbat)) {
-      Serial.println(F("Failed to read Batt"));
-    } else {
-      Serial.print(F("VPct = ")); Serial.print(vbat); Serial.println(F("%"));
-    }
-    postToOsem(String(BATTERY_ID), String(vbat));
-
-    // read the RSSI
-    uint8_t n = fona.getRSSI();
-    int8_t r;
-
-    Serial.print(F("RSSI = ")); Serial.print(n); Serial.print(": ");
-    if (n == 0) r = -115;
-    if (n == 1) r = -111;
-    if (n == 31) r = -52;
-    if ((n >= 2) && (n <= 30)) {
-      r = map(n, 2, 30, -110, -54);
-    }
-    Serial.print(r); Serial.println(F(" dBm"));
-    postToOsem(String(SIGNAL_STRENGTH_ID), String(r));
-
-    Serial.println("going to sleep...");
-    // turn FONA off
-    toggleFONAPower();
+  // Reading Battery Percentage
+  uint16_t vbat;
+  if (!fona.getBattPercent(&vbat)) {
+    Serial.println(F("Failed to read Batt"));
   } else {
+    Serial.print(F("VPct = ")); Serial.print(vbat); Serial.println(F("%"));
+  }
+  postToOsem(String(BATTERY_ID), String(vbat));
+
+  // read the RSSI
+  uint8_t n = fona.getRSSI();
+  int8_t r;
+
+  //Serial.print(F("RSSI = ")); Serial.print(n); Serial.print(": ");
+  if (n == 0) r = -115;
+  if (n == 1) r = -111;
+  if (n == 31) r = -52;
+  if ((n >= 2) && (n <= 30)) {
+    r = map(n, 2, 30, -110, -54);
+  }
+  Serial.print(r); Serial.println(F(" dBm"));
+  postToOsem(String(SIGNAL_STRENGTH_ID), String(r));
+
+  Serial.println("going to sleep...");
+  // turn FONA off
+  toggleFONAPower();
+
+  int amountOfNaps = INTERVAL / 8;
+
+  for (int i = 0; i < amountOfNaps; i++) {
     // Enter power down state for 8 s with ADC and BOD module disabled
     LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
   }
-  wakeups++;
 }
 
 // post value to sensor in opensensemap
@@ -132,37 +120,36 @@ void postToOsem(String sensorID, String value) {
   String dataString = "{\n";
   dataString += "\t \"value\": " + String(value);
   dataString += "\n}";
-  Serial.println(dataString);
+
   char data[dataString.length() + 1];
   dataString.toCharArray(data, dataString.length() + 1);
+  Serial.println(String(data));
 
   // build POST URL
-  String postURLString = "ingress.opensensemap.org:80/boxes/" + String(SENSEBOX_ID) + "/" + String(sensorID);
-  char postURL[postURLString.length() + 1];
-  postURLString.toCharArray(postURL, postURLString.length() + 1);
-  delay(50);
-  Serial.println("PostURL:");
-  Serial.println(String(postURL));
-  delay(50);
+  String postURLString = "ingress.opensensemap.org:80/boxes/";
+  postURLString += String(SENSEBOX_ID);
+  postURLString += "/";
+  postURLString += String(sensorID);
+
+  char postURLChar[postURLString.length() + 1];
+  postURLString.toCharArray(postURLChar, postURLString.length() + 1);
+  Serial.println(String(postURLChar));
 
   // do post request
   uint16_t statuscode;
   int16_t length;
-  if (!fona.HTTP_POST_start(postURL, F("application/json"), (uint8_t *) data, strlen(data), &statuscode, (uint16_t *)&length)) {
+  if (!fona.HTTP_POST_start(postURLChar, F("application/json"), (uint8_t *) data, strlen(data), &statuscode, (uint16_t *)&length)) {
     Serial.println("Failed!");
   }
-  //delay(2000);
   // end post request
   fona.HTTP_POST_end();
   delay(2000);
 }
 
 void toggleFONAPower() {
-  digitalWrite(5, LOW);
+  digitalWrite(FONA_KEY, LOW);
   delay(2500);
-  digitalWrite(5, HIGH);
-
-  isFONAOn = !isFONAOn;
+  digitalWrite(FONA_KEY, HIGH);
 }
 
 void setupFONA() {
@@ -176,12 +163,6 @@ void setupFONA() {
 
   delay(5000);
 
-  // set APN settings
-  Serial.println("APN settings...");
-  fona.setGPRSNetworkSettings(F(SECRET_APN_PROVIDER), F(""), F(""));
-
-  delay(5000);
-
   // Unlock SIM
   Serial.print("Unlocking SIM with PIN: ");
   Serial.println(myPIN);
@@ -192,6 +173,13 @@ void setupFONA() {
   }
 
   delay(5000);
+
+  // set APN settings
+  Serial.println("APN settings...");
+  fona.setGPRSNetworkSettings(F(SECRET_APN_PROVIDER), F(""), F(""));
+
+  delay(10000);
+
 
   // Wait till FONA has network access
   Serial.println("Wait for network...");
@@ -212,16 +200,20 @@ void setupFONA() {
     delay(1000);
   }
 
-  delay(5000);
+  delay(10000);
 
   // Enable GPRS
   Serial.println("Enable GPRS...");
   if (!fona.enableGPRS(true)) {
     Serial.println(F("Failed to turn on"));
-    // while(true);
-    // asm volatile ("jmp 0");
+    //toggleFONAPower();
+    //asm volatile ("jmp 0");
   }
-  delay(2000);
+  delay(10000);
+}
+
+boolean isPowered() {
+  return digitalRead(FONA_PS) == HIGH;
 }
 
 
